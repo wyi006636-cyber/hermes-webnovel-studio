@@ -21,8 +21,7 @@ A prompt or a single skill can write *a* chapter. A serialized novel also needs 
 ```bash
 hermes plugins install webnovel-studio      # once listed in the catalog
 # or straight from GitHub:
-hermes plugins install https://github.com/wyi006636-cyber/hermes-webnovel-studio
-hermes plugins enable webnovel-studio
+hermes plugins install "wyi006636-cyber/hermes-webnovel-studio#webnovel_studio" --yes-deps --enable
 ```
 
 Requires Hermes `>=0.22.5`. At install time Hermes asks for consent to install the plugin's Python dependencies: `filelock`, `pydantic`, `fastapi`, `uvicorn` and `watchdog`. The last three are used only by the dashboard.
