@@ -1,0 +1,21 @@
+routing:
+  allowed_providers: []
+  allowed_models: []
+
+roles:
+  architect:
+    route: inherit
+    temperature: 0.5
+    timeout: 180
+  context_curator:
+    route: inherit
+    temperature: 0.1
+    timeout: 120
+  writer:
+    route: inherit
+    temperature: 0.8
+    timeout: 300
+  reader_editor:
+    route: inherit
+    temperature: 0.3
+    timeout: 180

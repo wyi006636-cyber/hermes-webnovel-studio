@@ -1,0 +1,10 @@
+name: webnovel-writer
+version: 0.1.0
+description: Novel-first initialization, planning, chapter writing, and optional literary review.
+author: Webnovel Writer Hermes contributors
+kind: standalone
+provides_tools:
+  - webnovel_runtime
+provides_hooks:
+  - pre_tool_call
+  - pre_llm_call
