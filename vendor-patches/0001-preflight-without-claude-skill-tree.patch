@@ -1,0 +1,28 @@
+diff --git a/scripts/data_modules/webnovel.py b/scripts/data_modules/webnovel.py
+index 5e778e3..f528600 100644
+--- a/scripts/data_modules/webnovel.py
++++ b/scripts/data_modules/webnovel.py
+@@ -171,7 +171,6 @@ def _project_root_diagnostic(
+ def _build_preflight_report(explicit_project_root: Optional[str]) -> dict:
+     scripts_dir = _scripts_dir().resolve()
+     plugin_root = scripts_dir.parent
+-    skill_root = plugin_root / "skills" / "webnovel-write"
+     entry_script = scripts_dir / "webnovel.py"
+     extract_script = scripts_dir / "extract_chapter_context.py"
+ 
+@@ -179,7 +178,6 @@ def _build_preflight_report(explicit_project_root: Optional[str]) -> dict:
+         {"name": "scripts_dir", "ok": scripts_dir.is_dir(), "path": str(scripts_dir)},
+         {"name": "entry_script", "ok": entry_script.is_file(), "path": str(entry_script)},
+         {"name": "extract_context_script", "ok": extract_script.is_file(), "path": str(extract_script)},
+-        {"name": "skill_root", "ok": skill_root.is_dir(), "path": str(skill_root)},
+     ]
+ 
+     project_root = ""
+@@ -208,7 +206,6 @@ def _build_preflight_report(explicit_project_root: Optional[str]) -> dict:
+         "ok": all(bool(item["ok"]) for item in checks),
+         "project_root": project_root,
+         "scripts_dir": str(scripts_dir),
+-        "skill_root": str(skill_root),
+         "checks": checks,
+         "project_root_error": project_root_error,
+         "story_runtime": story_runtime,

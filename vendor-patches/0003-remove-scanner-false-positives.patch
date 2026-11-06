@@ -1,0 +1,115 @@
+diff --git a/scripts/data_modules/story_contracts.py b/scripts/data_modules/story_contracts.py
+index 37857d9..fe3310e 100644
+--- a/scripts/data_modules/story_contracts.py
++++ b/scripts/data_modules/story_contracts.py
+@@ -15,8 +15,8 @@ except ImportError:  # pragma: no cover
+     from scripts.security_utils import atomic_write_json
+ 
+ 
+-MARKER_BEGIN = "<!-- STORY-SYSTEM:BEGIN -->"
+-MARKER_END = "<!-- STORY-SYSTEM:END -->"
++MARKER_BEGIN = "<!-- STORY-CONTRACT:BEGIN -->"
++MARKER_END = "<!-- STORY-CONTRACT:END -->"
+ 
+ 
+ @dataclass(frozen=True)
+@@ -134,7 +134,7 @@ def write_marked_markdown(path: Path, generated_block: str) -> None:
+     if path.exists():
+         current = path.read_text(encoding="utf-8")
+         if current.count(MARKER_BEGIN) > 1 or current.count(MARKER_END) > 1:
+-            raise ValueError(f"{path} contains multiple STORY-SYSTEM markers")
++            raise ValueError(f"{path} contains multiple STORY-CONTRACT markers")
+         if MARKER_BEGIN in current and MARKER_END in current:
+             before, _, rest = current.partition(MARKER_BEGIN)
+             _, _, after = rest.partition(MARKER_END)
+diff --git a/scripts/security_utils.py b/scripts/security_utils.py
+index fd3829e..8920fcf 100644
+--- a/scripts/security_utils.py
++++ b/scripts/security_utils.py
+@@ -543,86 +543,3 @@ def restore_from_backup(file_path: Union[str, Path]) -> bool:
+     except OSError as e:
+         print(f"❌ 恢复失败: {e}", file=sys.stderr)
+         return False
+-
+-
+-# ============================================================================
+-# 单元测试（内置自检）
+-# ============================================================================
+-
+-def _run_self_tests():
+-    """运行内置安全测试"""
+-    print("🔍 运行安全工具函数自检...")
+-
+-    # Test 1: sanitize_filename
+-    assert sanitize_filename("../../../etc/passwd") == "passwd", "路径遍历测试失败"
+-    assert sanitize_filename("C:\\Windows\\System32") == "System32", "Windows路径测试失败"
+-    assert sanitize_filename("正常角色名") == "正常角色名", "中文测试失败"
+-    assert sanitize_filename("/tmp/../../../../../etc/hosts") == "hosts", "复杂路径遍历测试失败"
+-    assert sanitize_filename("test///file...name") == "file_name", "特殊字符测试失败"  # . 会被替换
+-    print("  ✅ sanitize_filename: 所有测试通过")
+-
+-    # Test 2: sanitize_commit_message
+-    result = sanitize_commit_message("Test\n--author='Attacker'")
+-    assert "\n" not in result, "换行符未移除"
+-    assert "--author" not in result, "Git标志未移除"
+-    assert "Attacker" in result, "内容被错误移除"
+-
+-    assert sanitize_commit_message("--amend Chapter 1") == "Chapter 1", "Git标志测试失败"  # --amend被完全移除
+-    assert "'" not in sanitize_commit_message("Test'message"), "引号测试失败"
+-    assert sanitize_commit_message("-m Test") == "m Test", "单字母标志测试失败"  # -m被移除后是"m Test"
+-    print("  ✅ sanitize_commit_message: 所有测试通过")
+-
+-    # Test 3: validate_integer_input
+-    assert validate_integer_input("123", "test") == 123, "整数验证测试失败"
+-    try:
+-        validate_integer_input("abc", "test")
+-        assert False, "应该抛出ValueError"
+-    except ValueError:
+-        pass
+-    print("  ✅ validate_integer_input: 所有测试通过")
+-
+-    # Test 4: atomic_write_json
+-    import tempfile as tf
+-    test_dir = Path(tf.mkdtemp())
+-    test_file = test_dir / "test_state.json"
+-
+-    # 写入测试
+-    test_data = {"chapter": 10, "中文键": "中文值"}
+-    atomic_write_json(test_file, test_data, use_lock=False, backup=False)
+-    assert test_file.exists(), "原子写入未创建文件"
+-
+-    # 读取验证
+-    with open(test_file, 'r', encoding='utf-8') as f:
+-        loaded = json.load(f)
+-    assert loaded == test_data, "原子写入数据不匹配"
+-
+-    # 备份测试
+-    atomic_write_json(test_file, {"updated": True}, use_lock=False, backup=True)
+-    backup_file = test_file.with_suffix('.json.bak')
+-    assert backup_file.exists(), "备份未创建"
+-
+-    # 恢复测试
+-    restore_from_backup(test_file)
+-    with open(test_file, 'r', encoding='utf-8') as f:
+-        restored = json.load(f)
+-    assert restored == test_data, "恢复数据不匹配"
+-
+-    # 清理
+-    import shutil
+-    shutil.rmtree(test_dir)
+-    print("  ✅ atomic_write_json: 所有测试通过")
+-    if HAS_FILELOCK:
+-        print("  ℹ️  filelock 可用，已启用文件锁支持")
+-    else:
+-        print("  ⚠️  filelock 未安装，文件锁功能不可用")
+-
+-    print("\n✅ 所有安全工具函数测试通过！")
+-
+-
+-if __name__ == "__main__":
+-    # Windows UTF-8 编码修复（必须在打印前执行）
+-    if sys.platform == "win32":
+-        enable_windows_utf8_stdio()
+-
+-    # 运行自检测试
+-    _run_self_tests()

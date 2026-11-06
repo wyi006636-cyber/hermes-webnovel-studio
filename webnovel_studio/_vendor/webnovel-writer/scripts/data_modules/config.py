@@ -27,54 +27,13 @@ def _get_user_claude_root() -> Path:
     return (Path.home() / ".claude").resolve()
 
 
-def _load_dotenv_file(env_path: Path, *, override: bool = False) -> bool:
-    if not env_path.exists():
-        return False
-    try:
-        with open(env_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, value = line.partition("=")
-                    key = key.strip()
-                    value = value.strip()
-                    if not key:
-                        continue
-                    # 默认不覆盖已有环境变量（保持“显式 > .env”优先级）
-                    if override or key not in os.environ:
-                        os.environ[key] = value
-        return True
-    except Exception:
-        return False
-
-
-def _load_dotenv():
-    """
-    加载 .env 文件（best-effort）。
-
-    约定：
-    - 项目级 `.env`（当前工作目录下）优先；
-    - 全局 `.env` 作为兜底：`~/.claude/webnovel-writer/.env`
-    """
-    # 1) 当前目录（常见：用户从项目根目录执行）
-    _load_dotenv_file(Path.cwd() / ".env", override=False)
-
-    # 2) 用户级全局（常见：skills/agents 全局安装，API key 放这里最省心）
-    global_env = _get_user_claude_root() / "webnovel-writer" / ".env"
-    _load_dotenv_file(global_env, override=False)
-
-
 def _load_project_dotenv(project_root: Path) -> None:
-    """
-    加载某个项目根目录下的 `.env`（best-effort）。
-    注意：不覆盖已存在环境变量，避免意外串台。
-    """
-    try:
-        _load_dotenv_file(Path(project_root) / ".env", override=False)
-    except Exception:
-        return
+    """Hermes build: never read ``.env`` files.
 
-_load_dotenv()
+    Credentials reach a Hermes plugin only through Hermes itself, so the
+    upstream ``.env`` loaders (project, cwd and ``~/.claude``) are removed.
+    """
+    del project_root
 
 
 def _default_context_template_weights_dynamic() -> dict[str, dict[str, dict[str, float]]]:
@@ -143,9 +102,10 @@ class DataModulesConfig:
 
     # ================= Embedding API 配置 =================
     embed_api_type: str = "openai"
-    embed_base_url: str = field(default_factory=lambda: os.getenv("EMBED_BASE_URL", "https://api-inference.modelscope.cn/v1"))
-    embed_model: str = field(default_factory=lambda: os.getenv("EMBED_MODEL", "Qwen/Qwen3-Embedding-8B"))
-    embed_api_key: str = field(default_factory=lambda: os.getenv("EMBED_API_KEY", ""))
+    # Hermes build: vector retrieval is disabled, so no endpoint or key is read.
+    embed_base_url: str = ""
+    embed_model: str = ""
+    embed_api_key: str = ""
 
     @property
     def embed_url(self) -> str:
@@ -153,9 +113,9 @@ class DataModulesConfig:
 
     # ================= Rerank API 配置 =================
     rerank_api_type: str = "openai"
-    rerank_base_url: str = field(default_factory=lambda: os.getenv("RERANK_BASE_URL", "https://api.jina.ai/v1"))
-    rerank_model: str = field(default_factory=lambda: os.getenv("RERANK_MODEL", "jina-reranker-v3"))
-    rerank_api_key: str = field(default_factory=lambda: os.getenv("RERANK_API_KEY", ""))
+    rerank_base_url: str = ""
+    rerank_model: str = ""
+    rerank_api_key: str = ""
 
     @property
     def rerank_url(self) -> str:
@@ -252,7 +212,7 @@ class DataModulesConfig:
     context_writing_score_persist_enabled: bool = True
     context_writing_score_include_reader_trend: bool = True
     context_writing_score_trend_window: int = 10
-    context_rag_assist_enabled: bool = True
+    context_rag_assist_enabled: bool = False  # Hermes build: no vector retrieval
     context_rag_assist_top_k: int = 4
     context_rag_assist_min_outline_chars: int = 40
     context_rag_assist_max_query_chars: int = 120

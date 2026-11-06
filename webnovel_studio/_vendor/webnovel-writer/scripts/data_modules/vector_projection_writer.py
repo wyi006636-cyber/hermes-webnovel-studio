@@ -20,6 +20,8 @@ class VectorProjectionWriter:
         self.project_root = Path(project_root)
 
     def apply(self, commit_payload: dict) -> dict:
+        # Hermes build: the vector index needs a third-party embedding API.
+        return {"applied": False, "writer": "vector", "reason": "vector_index_disabled"}
         if commit_payload["meta"]["status"] != "accepted":
             return {"applied": False, "writer": "vector", "reason": "commit_rejected"}
 

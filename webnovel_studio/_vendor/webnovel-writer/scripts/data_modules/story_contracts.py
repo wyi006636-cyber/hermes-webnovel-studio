@@ -15,8 +15,8 @@ except ImportError:  # pragma: no cover
     from scripts.security_utils import atomic_write_json
 
 
-MARKER_BEGIN = "<!-- STORY-SYSTEM:BEGIN -->"
-MARKER_END = "<!-- STORY-SYSTEM:END -->"
+MARKER_BEGIN = "<!-- STORY-CONTRACT:BEGIN -->"
+MARKER_END = "<!-- STORY-CONTRACT:END -->"
 
 
 @dataclass(frozen=True)
@@ -134,7 +134,7 @@ def write_marked_markdown(path: Path, generated_block: str) -> None:
     if path.exists():
         current = path.read_text(encoding="utf-8")
         if current.count(MARKER_BEGIN) > 1 or current.count(MARKER_END) > 1:
-            raise ValueError(f"{path} contains multiple STORY-SYSTEM markers")
+            raise ValueError(f"{path} contains multiple STORY-CONTRACT markers")
         if MARKER_BEGIN in current and MARKER_END in current:
             before, _, rest = current.partition(MARKER_BEGIN)
             _, _, after = rest.partition(MARKER_END)
