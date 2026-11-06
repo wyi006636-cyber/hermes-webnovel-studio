@@ -13,6 +13,13 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .de_ai_linter import build_scene_beats, detect_language
+from .story_state_sync import (
+    collect_codex_entities,
+    collect_foreshadowing_alerts,
+    retrieve_local_passages,
+)
+
 
 class NovelContextError(RuntimeError):
     """The project cannot safely provide writing context."""
@@ -32,20 +39,30 @@ class NovelContext:
     previous_ending: str
     author_instruction: str
     warnings: tuple[str, ...]
+    language: str = "zh"
+    active_entities: tuple[dict[str, Any], ...] = ()
+    foreshadowing_alerts: tuple[dict[str, Any], ...] = ()
+    retrieved_passages: tuple[dict[str, Any], ...] = ()
+    scene_beats: tuple[dict[str, Any], ...] = ()
 
     def as_prompt(self) -> dict[str, Any]:
         value = asdict(self)
         value["authority_order"] = [
             "setting_context",
+            "active_entities",
             "author_instruction",
             "chapter_outline",
+            "scene_beats",
+            "foreshadowing_alerts",
             "book_context",
             "recent_memory",
+            "retrieved_passages",
             "previous_ending",
         ]
         value["authority_rule"] = (
             "发生冲突时，以作者写入设定集的已确认设定为最高事实；当前指令只能决定本章写法，"
             "不得暗中改写已确认设定。章纲和总纲高于自动提取的轻量记忆，前文原文高于记忆摘要。"
+            " When conflicts arise, confirmed settings in 设定集 take highest priority."
         )
         return value
 
@@ -53,7 +70,10 @@ class NovelContext:
 class NovelContextBuilder:
     """Build one chapter's useful writing context without contract gates."""
 
-    _CHAPTER_HEADING = re.compile(r"^\s*#{1,6}\s*第\s*0*(\d+)\s*章(?:\s*[-—:：]?\s*(.*?))?\s*$")
+    _CHAPTER_HEADING = re.compile(
+        r"^\s*#{1,6}\s*(?:第\s*0*(\d+)\s*章|Chapter\s*0*(\d+))(?:\s*[-—:：]?\s*(.*?))?\s*$",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self,
@@ -139,10 +159,13 @@ class NovelContextBuilder:
             title = ""
             for index, line in enumerate(lines):
                 match = self._CHAPTER_HEADING.match(line)
-                if not match or int(match.group(1)) != chapter:
+                if not match:
+                    continue
+                matched_number = int(match.group(1) or match.group(2) or 0)
+                if matched_number != chapter:
                     continue
                 start = index
-                title = (match.group(2) or "").strip(" -—:：")
+                title = (match.group(3) or "").strip(" -—:：")
                 break
             if start is None:
                 continue
@@ -257,6 +280,10 @@ class NovelContextBuilder:
         candidates = sorted(body_dir.glob(f"第{chapter - 1:04d}章-*.md"))
         if not candidates:
             candidates = sorted(body_dir.glob(f"第{chapter - 1}章*.md"))
+        if not candidates:
+            candidates = sorted(body_dir.glob(f"Chapter-{chapter - 1:04d}*.md"))
+        if not candidates:
+            candidates = sorted(body_dir.glob(f"Chapter-{chapter - 1}*.md"))
         for path in candidates:
             text = self._safe_text(path).strip()
             if text:
@@ -284,16 +311,57 @@ class NovelContextBuilder:
         title, chapter_outline = self._chapter_section(chapter)
         if not chapter_outline:
             warnings.append("outline_missing")
+        lang = str(project.get("language") or "").strip().lower()
+        if lang not in {"zh", "en"}:
+            lang = detect_language(
+                project.get("title"),
+                project.get("genre"),
+                project.get("premise"),
+                title,
+                chapter_outline,
+                author_instruction,
+            )
         if not title:
-            title = f"第{chapter}章"
-        settings = self._settings(
-            "\n".join((chapter_outline, author_instruction, title))
-        )
+            title = f"Chapter {chapter}" if lang == "en" else f"第{chapter}章"
+        relevance_source = "\n".join((chapter_outline, author_instruction, title))
+        settings = self._settings(relevance_source)
         if not settings:
             warnings.append("settings_missing")
+        previous_ending = self._previous_ending(chapter, warnings)
+        active_entities = tuple(
+            collect_codex_entities(
+                self.project_root,
+                state,
+                relevance_source + "\n" + previous_ending,
+                chapter,
+            )
+        )
+        foreshadowing_alerts = tuple(
+            collect_foreshadowing_alerts(self.project_root, state, chapter)
+        )
+        retrieved_passages = tuple(
+            retrieve_local_passages(
+                self.project_root,
+                relevance_source,
+                before_chapter=chapter,
+                limit=3,
+            )
+        )
+        scene_beats = tuple(
+            build_scene_beats(
+                chapter=chapter,
+                title=title,
+                chapter_outline=chapter_outline,
+                author_instruction=author_instruction,
+                active_entities=active_entities,
+                foreshadowing_alerts=foreshadowing_alerts,
+                language=lang,
+            )
+        )
 
+        default_book_title = "Untitled Novel" if lang == "en" else "未命名小说"
         return NovelContext(
-            book_title=str(project.get("title") or state.get("title") or "未命名小说"),
+            book_title=str(project.get("title") or state.get("title") or default_book_title),
             genre=str(project.get("genre_label") or project.get("genre") or ""),
             premise=str(project.get("premise") or state.get("premise") or ""),
             chapter=chapter,
@@ -302,9 +370,14 @@ class NovelContextBuilder:
             book_context=self._book_context(chapter_outline),
             setting_context=settings,
             recent_memory=self._memory(chapter, warnings),
-            previous_ending=self._previous_ending(chapter, warnings),
+            previous_ending=previous_ending,
             author_instruction=author_instruction.strip(),
             warnings=tuple(dict.fromkeys(warnings)),
+            language=lang,
+            active_entities=active_entities,
+            foreshadowing_alerts=foreshadowing_alerts,
+            retrieved_passages=retrieved_passages,
+            scene_beats=scene_beats,
         )
 
 

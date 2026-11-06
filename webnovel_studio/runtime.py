@@ -22,6 +22,7 @@ from .novel_writing_service import ChapterAlreadyExistsError, NovelWritingServic
 from .novel_quality_service import NovelQualityService
 from .project_lock import ProjectLock, ProjectLockError
 from .run_store import InvalidTransitionError, RunStore, RunStoreError
+from .story_state_sync import StoryStateSync
 from .tool_schema import WEBNOVEL_RUNTIME_ACTIONS
 from .upstream_bridge import (
     BridgeError,
@@ -540,6 +541,10 @@ def _dashboard(
         return envelope
 
     try:
+        try:
+            StoryStateSync(project_root).ensure_dashboard_db()
+        except Exception:
+            pass
         handle = DASHBOARD_REGISTRY.start(project_root, port=requested_port)
     except DashboardError as exc:
         return _fail(envelope, "dashboard_start_failed", str(exc))

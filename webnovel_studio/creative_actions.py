@@ -9,6 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Mapping
 
+from .de_ai_linter import detect_language
 from .project_lock import ProjectLock
 
 
@@ -239,12 +240,20 @@ class CreativeProjectService:
 
     def propose(self, idea: Any) -> dict[str, Any]:
         idea_text = self._input_text(idea)
+        lang = detect_language(idea_text)
+        is_en = lang == "en"
         if not idea_text:
-            idea_text = "请创造一部有鲜明人物、核心冲突和长期故事动力的中文长篇小说。"
+            idea_text = (
+                "Create a compelling long-form novel with a distinct protagonist, core conflict, and multi-volume momentum."
+                if is_en
+                else "请创造一部有鲜明人物、核心冲突和长期故事动力的中文长篇小说。"
+            )
         result = self.router.complete_structured(
             "architect",
             instructions=(
-                "把作者灵感发展成一份完整但简洁的小说创作方案。重点是人物欲望、核心冲突、"
+                "Develop the author's idea into a complete, concise novel proposal in English. Focus on character desire, core conflict, world pressure, narrative voice, opening incident, and multi-volume momentum. Do not output system fields or workflow contracts."
+                if is_en
+                else "把作者灵感发展成一份完整但简洁的小说创作方案。重点是人物欲望、核心冲突、"
                 "世界压力、叙事声音、开篇事件和能持续多卷的故事动力。不要列系统字段、"
                 "验收规则、商业评分或工作流。"
             ),
@@ -253,35 +262,80 @@ class CreativeProjectService:
             json_mode=True,
             schema_name="novel_proposal_v1",
             system_prompt=(
-                "你是经验丰富的中文小说策划。创意必须具体、可写、有人物选择和长期冲突。"
+                "You are an experienced fiction architect. Proposals must be concrete, playable, and driven by character choices."
+                if is_en
+                else "你是经验丰富的中文小说策划。创意必须具体、可写、有人物选择和长期冲突。"
             ),
             purpose="webnovel:creative:init",
         )
         candidate = getattr(result, "parsed", None)
         raw = candidate if isinstance(candidate, Mapping) else {}
         return {
-            "title": self._text(raw.get("title"), "未命名小说"),
-            "genre": self._text(raw.get("genre"), "未定题材"),
+            "title": self._text(raw.get("title"), "Untitled Novel" if is_en else "未命名小说"),
+            "genre": self._text(raw.get("genre"), "Speculative Fiction" if is_en else "未定题材"),
             "premise": self._text(raw.get("premise"), idea_text),
-            "protagonist": self._text(raw.get("protagonist"), "由故事冲突塑造的主角"),
+            "protagonist": self._text(
+                raw.get("protagonist"),
+                "A protagonist shaped by the central conflict" if is_en else "由故事冲突塑造的主角",
+            ),
             "core_conflict": self._text(raw.get("core_conflict"), idea_text),
-            "world": self._text(raw.get("world"), "围绕核心冲突展开的世界"),
-            "tone": self._text(raw.get("tone"), "清晰、有张力、人物驱动"),
-            "opening": self._text(raw.get("opening"), "主角被迫做出第一个不可回避的选择"),
-            "long_arc": self._text(raw.get("long_arc"), "主角为核心目标持续行动并承担代价"),
+            "world": self._text(
+                raw.get("world"),
+                "A world structured around the central conflict" if is_en else "围绕核心冲突展开的世界",
+            ),
+            "tone": self._text(
+                raw.get("tone"),
+                "Sharp, tense, character-driven" if is_en else "清晰、有张力、人物驱动",
+            ),
+            "opening": self._text(
+                raw.get("opening"),
+                "The protagonist faces an unavoidable first choice" if is_en else "主角被迫做出第一个不可回避的选择",
+            ),
+            "long_arc": self._text(
+                raw.get("long_arc"),
+                "The protagonist pursues the core goal across escalating stakes" if is_en else "主角为核心目标持续行动并承担代价",
+            ),
         }
 
     def initialize(self, proposal: Mapping[str, Any]) -> dict[str, Any]:
+        lang = detect_language(
+            proposal.get("title"),
+            proposal.get("genre"),
+            proposal.get("premise"),
+            proposal.get("protagonist"),
+        )
+        is_en = lang == "en"
         normalized = {
-            "title": self._text(proposal.get("title"), "未命名小说"),
-            "genre": self._text(proposal.get("genre"), "未定题材"),
-            "premise": self._text(proposal.get("premise"), "一个等待展开的故事"),
-            "protagonist": self._text(proposal.get("protagonist"), "待故事塑造的主角"),
-            "core_conflict": self._text(proposal.get("core_conflict"), "主角必须做出艰难选择"),
-            "world": self._text(proposal.get("world"), "围绕核心冲突展开的世界"),
-            "tone": self._text(proposal.get("tone"), "人物驱动"),
-            "opening": self._text(proposal.get("opening"), "一个不可回避的事件发生"),
-            "long_arc": self._text(proposal.get("long_arc"), "主角持续追寻目标并承担代价"),
+            "title": self._text(proposal.get("title"), "Untitled Novel" if is_en else "未命名小说"),
+            "genre": self._text(proposal.get("genre"), "Speculative Fiction" if is_en else "未定题材"),
+            "premise": self._text(
+                proposal.get("premise"),
+                "A story waiting to unfold" if is_en else "一个等待展开的故事",
+            ),
+            "protagonist": self._text(
+                proposal.get("protagonist"),
+                "A protagonist to be shaped by conflict" if is_en else "待故事塑造的主角",
+            ),
+            "core_conflict": self._text(
+                proposal.get("core_conflict"),
+                "The protagonist must make a costly choice" if is_en else "主角必须做出艰难选择",
+            ),
+            "world": self._text(
+                proposal.get("world"),
+                "A world built around the core conflict" if is_en else "围绕核心冲突展开的世界",
+            ),
+            "tone": self._text(
+                proposal.get("tone"),
+                "Character-driven" if is_en else "人物驱动",
+            ),
+            "opening": self._text(
+                proposal.get("opening"),
+                "An unavoidable inciting event occurs" if is_en else "一个不可回避的事件发生",
+            ),
+            "long_arc": self._text(
+                proposal.get("long_arc"),
+                "The protagonist pursues the goal and bears the cost" if is_en else "主角持续追寻目标并承担代价",
+            ),
         }
         existed_before = self.project_root.exists()
         if existed_before and not self.project_root.is_dir():
@@ -348,15 +402,58 @@ class CreativeProjectService:
                 raise CreativeOverwriteError("novel project changed during initialization")
             for directory in ("设定集", "大纲", "正文", "审查报告"):
                 self._safe_directory(directory)
+            protag_head = re.split(r"[，,。；;：:—-]", normalized["protagonist"], maxsplit=1)[0].strip()
+            if not protag_head or len(protag_head) > 24:
+                protag_head = "Protagonist" if is_en else "主角"
             state = {
                 "schema_version": "novel-project/v1",
                 "project_info": {
                     "title": normalized["title"],
                     "genre": normalized["genre"],
                     "premise": normalized["premise"],
+                    "language": lang,
+                },
+                "project": {
+                    "title": normalized["title"],
+                    "genre": normalized["genre"],
+                    "premise": normalized["premise"],
+                    "language": lang,
+                },
+                "protagonist_state": {
+                    "name": protag_head,
+                    "location": normalized["world"][:60],
+                    "power": {"realm": "Initial" if is_en else "初始", "layer": ""},
+                },
+                "entities_v3": {
+                    "角色": {
+                        "char_protagonist": {
+                            "name": protag_head,
+                            "canonical_name": protag_head,
+                            "tier": "核心",
+                            "desc": normalized["protagonist"],
+                            "aliases": [],
+                            "is_protagonist": True,
+                            "first_appearance": 1,
+                            "last_appearance": 1,
+                            "current": {"status": normalized["protagonist"][:120]},
+                        }
+                    }
+                },
+                "plot_threads": {
+                    "foreshadowing": [
+                        {
+                            "content": normalized["opening"][:160],
+                            "planted_chapter": 1,
+                            "target_chapter": 10,
+                            "resolved_chapter": None,
+                            "status": "active",
+                            "urgency": 50,
+                        }
+                    ]
                 },
                 "progress": {
                     "current_chapter": 0,
+                    "total_words": 0,
                     "volumes_planned": [],
                 },
             }
@@ -498,17 +595,25 @@ class CreativeProjectService:
         )
         source_snapshots = {path: self._snapshot_file(path) for path in source_paths}
 
+        sources = self._project_sources()
+        plan_lang = detect_language(
+            self._input_text(requirements),
+            *sources.values(),
+        )
+        is_en = plan_lang == "en"
         request = {
             "volume": volume,
             "start_chapter": start,
             "end_chapter": end,
             "requirements": self._input_text(requirements),
-            "project_sources": self._project_sources(),
+            "project_sources": sources,
         }
         result = self.router.complete_structured(
             "architect",
             instructions=(
-                "规划一卷真正可写的小说。每章只给章名、本章实际事件、人物必须做出的选择、"
+                "Plan a playable novel volume in English. For each chapter, provide title, concrete chapter event, character choice, and ending drive. Do not generate system contracts or node codes."
+                if is_en
+                else "规划一卷真正可写的小说。每章只给章名、本章实际事件、人物必须做出的选择、"
                 "以及由本章事件自然产生的结尾推动。关注剧情因果、人物关系、节奏和情绪递进。"
                 "不要生成时间字段清单、节点编码、逐字锚点、审查规则或合同。"
             ),
@@ -521,7 +626,11 @@ class CreativeProjectService:
             json_schema=_PLAN_SCHEMA,
             json_mode=True,
             schema_name="novel_volume_plan_v1",
-            system_prompt="你是长篇小说卷纲策划，所有章节必须能直接拿来写场景。",
+            system_prompt=(
+                "You are a long-form fiction volume architect. Every chapter card must be directly playable as scenes."
+                if is_en
+                else "你是长篇小说卷纲策划，所有章节必须能直接拿来写场景。"
+            ),
             purpose="webnovel:creative:plan",
         )
         candidate = getattr(result, "parsed", None)

@@ -15,9 +15,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping
 
+from .de_ai_linter import lint_prose
 from .novel_context import NovelContext, NovelContextBuilder
 from .project_lock import ProjectLock
 from .roles import load_role_prompt
+from .story_state_sync import StoryStateSync
 
 
 class NovelWritingError(RuntimeError):
@@ -40,6 +42,13 @@ _MEMORY_SCHEMA: dict[str, Any] = {
         "summary": {"type": "string"},
         "character_changes": {"type": "array", "items": {"type": "string"}},
         "open_threads": {"type": "array", "items": {"type": "string"}},
+        "resolved_threads": {"type": "array", "items": {"type": "string"}},
+        "characters": {"type": "array", "items": {"type": "string"}},
+        "location": {"type": "string"},
+        "strand": {"type": "string"},
+        "hook_type": {"type": "string"},
+        "hook_strength": {"type": "string"},
+        "tension_score": {"type": "integer", "minimum": 1, "maximum": 10},
         "ending": {"type": "string"},
     },
     "required": [
@@ -50,7 +59,7 @@ _MEMORY_SCHEMA: dict[str, Any] = {
         "open_threads",
         "ending",
     ],
-    "additionalProperties": False,
+    "additionalProperties": True,
 }
 
 
@@ -66,8 +75,14 @@ class NovelWritingService:
         "章末要产生自然、具体的下一章阅读欲望。"
     )
 
-    _HEADING = re.compile(r"^\s*#{1,6}\s*第\s*0*\d+\s*章[^\n]*\n+", re.MULTILINE)
-    _TITLE_LINE = re.compile(r"^\s*(?:章名|标题)\s*[:：][^\n]*\n+", re.MULTILINE)
+    _HEADING = re.compile(
+        r"^\s*#{1,6}\s*(?:第\s*0*\d+\s*章|Chapter\s*0*\d+)[^\n]*\n+",
+        re.MULTILINE | re.IGNORECASE,
+    )
+    _TITLE_LINE = re.compile(
+        r"^\s*(?:章名|标题|Chapter\s*Title|Title)\s*[:：][^\n]*\n+",
+        re.MULTILINE | re.IGNORECASE,
+    )
     _PREFIX = re.compile(
         r"^\s*(?:以下(?:是|为)(?:本章|章节)?正文|正文如下|这是(?:本章|章节)正文)\s*[:：]?\s*",
         re.IGNORECASE,
@@ -216,16 +231,25 @@ class NovelWritingService:
         target_chars: int | None,
         calls: list[dict[str, Any]],
     ) -> str:
+        is_en = getattr(context, "language", "zh") == "en"
         payload: dict[str, Any] = {
             "story_context": context.as_prompt(),
+            "scene_beats": list(getattr(context, "scene_beats", ())),
             "instruction": (
-                "直接写本章小说正文，不写标题、解释、提纲、复盘或任何系统字段。"
+                "Write the chapter prose in English following scene_beats and active_entities. "
+                "Output only novel prose—no chapter heading, outline, commentary, or system fields. "
+                "Prioritize character agency, concrete sensory details, and dramatic escalation."
+                if is_en
+                else "直接按 scene_beats（场景节拍）与 active_entities（出场人物状态）写本章小说正文，"
+                "不写标题、解释、提纲、复盘或任何系统字段。"
                 "优先完成场景中的人物行动、冲突变化与情绪推进。"
             ),
         }
         if target_chars is not None:
             payload["soft_length_preference"] = (
-                f"作者希望正文大约 {target_chars} 个中文字符；这是软方向，完整场景优先，"
+                f"Target roughly {target_chars} characters/words as a soft preference; prioritize complete scenes without padding or abrupt truncation."
+                if is_en
+                else f"作者希望正文大约 {target_chars} 个中文字符；这是软方向，完整场景优先，"
                 "不得为了凑数注水，也不得为了贴合长度截断剧情。"
             )
         last_error: Exception | None = None
@@ -267,6 +291,8 @@ class NovelWritingService:
         *,
         calls: list[dict[str, Any]],
     ) -> tuple[str, str | None]:
+        is_en = getattr(context, "language", "zh") == "en"
+        draft_lint = lint_prose(draft, language=getattr(context, "language", "zh"))
         try:
             result = self.router.complete(
                 "writer",
@@ -276,9 +302,13 @@ class NovelWritingService:
                         "story_context": context.as_prompt(),
                         "draft": draft,
                         "quality_rubric": self.QUALITY_RUBRIC,
+                        "de_ai_lint": draft_lint,
                         "instruction": (
-                            "通读全文后只做一次完整小说编辑。返回编辑后的完整正文，不写标题、"
-                            "评价、修改说明或分数。不要为了格式、长度或内部系统要求改稿。"
+                            "Perform a single complete literary edit in English. Eliminate any flagged AI clichés "
+                            "in de_ai_lint.edit_directives and return only the polished chapter prose."
+                            if is_en
+                            else "通读全文后只做一次完整小说编辑，重点消除 de_ai_lint.edit_directives 中指出的 AI 套话与重复句式。"
+                            "返回编辑后的完整正文，不写标题、评价、修改说明或分数。不要为了格式、长度或内部系统要求改稿。"
                         ),
                     },
                 ),
@@ -301,8 +331,10 @@ class NovelWritingService:
         result = self.router.complete_structured(
             "context_curator",
             instructions=(
-                "只提取供下一章续写使用的轻量故事记忆：本章实际发生了什么、人物状态如何变化、"
-                "哪些问题仍未闭合、结尾停在哪里。不要评价文笔，不要输出系统字段。"
+                "提取供下一章续写与看板更新使用的故事记忆：本章实际发生了什么（summary）、"
+                "人物状态如何变化（character_changes）、哪些伏笔/悬念未闭合（open_threads）、"
+                "哪些旧伏笔已回收（resolved_threads，可选）、本章出场人物（characters，可选）、"
+                "主要地点（location，可选）以及结尾停在哪里（ending）。不要评价文笔，不要输出系统字段。"
             ),
             input=[
                 {
@@ -329,7 +361,7 @@ class NovelWritingService:
         required = {"summary", "character_changes", "open_threads", "ending"}
         if not required.issubset(candidate):
             raise NovelWritingError("memory extractor omitted story memory")
-        return {
+        payload: dict[str, Any] = {
             "chapter": chapter,
             "title": title,
             "summary": str(candidate.get("summary") or "").strip(),
@@ -345,6 +377,24 @@ class NovelWritingService:
             ],
             "ending": str(candidate.get("ending") or "").strip(),
         }
+        for opt_list in ("resolved_threads", "characters"):
+            if isinstance(candidate.get(opt_list), list):
+                cleaned = [
+                    str(item).strip()
+                    for item in candidate[opt_list]
+                    if str(item).strip()
+                ]
+                if cleaned:
+                    payload[opt_list] = cleaned
+        for opt_str in ("location", "strand", "hook_type", "hook_strength"):
+            val = str(candidate.get(opt_str) or "").strip()
+            if val:
+                payload[opt_str] = val
+        if isinstance(candidate.get("tension_score"), int) and not isinstance(
+            candidate.get("tension_score"), bool
+        ):
+            payload["tension_score"] = max(1, min(10, int(candidate["tension_score"])))
+        return payload
 
     def _update_memory(self, chapter: int, payload: Mapping[str, Any]) -> None:
         path = self.project_root / ".webnovel" / "novel_memory.json"
@@ -363,7 +413,13 @@ class NovelWritingService:
         self._atomic_json(path, value)
 
     def _update_progress(
-        self, chapter: int, *, expected_state: bytes | None
+        self,
+        chapter: int,
+        *,
+        expected_state: bytes | None,
+        title: str = "",
+        body: str = "",
+        memory: Mapping[str, Any] | None = None,
     ) -> str | None:
         if expected_state is None:
             return None
@@ -374,15 +430,25 @@ class NovelWritingService:
             state = json.loads(expected_state.decode("utf-8"))
             if not isinstance(state, dict):
                 return None
-            progress = state.get("progress")
-            if not isinstance(progress, dict):
-                progress = {}
-            current = progress.get("current_chapter", 0)
-            if isinstance(current, bool) or not isinstance(current, int):
-                current = 0
-            progress["current_chapter"] = max(current, chapter)
-            state["progress"] = progress
-            self._atomic_json(path, state)
+            sync = StoryStateSync(self.project_root)
+            enriched = sync.build_enriched_state(
+                state,
+                chapter=chapter,
+                title=title or f"第{chapter}章",
+                body=body,
+                memory=memory,
+            )
+            self._atomic_json(path, enriched)
+            try:
+                sync.sync_after_chapter(
+                    chapter=chapter,
+                    title=title or f"第{chapter}章",
+                    body=body,
+                    state=enriched,
+                    memory=memory,
+                )
+            except Exception:
+                pass
             return None
         except (OSError, UnicodeError, TypeError, ValueError, json.JSONDecodeError):
             return "state_progress_update_failed"
@@ -484,19 +550,15 @@ class NovelWritingService:
                 warnings.append(editor_warning)
             if cleanup_warning:
                 warnings.append("legacy_cleanup_failed")
-            progress_warning = self._update_progress(
-                chapter, expected_state=state_snapshot
-            )
-            if progress_warning:
-                warnings.append(progress_warning)
+            extracted_memory: dict[str, Any] | None = None
             try:
-                memory = self._memory_payload(
+                extracted_memory = self._memory_payload(
                     chapter=chapter,
                     title=title,
                     body=final_body,
                     calls=calls,
                 )
-                self._update_memory(chapter, memory)
+                self._update_memory(chapter, extracted_memory)
                 warnings = [
                     warning
                     for warning in warnings
@@ -508,14 +570,29 @@ class NovelWritingService:
                 else:
                     calls.append({"stage": "memory", "attempt": 1, "failed": True})
                 warnings.append("memory_failed")
+            progress_warning = self._update_progress(
+                chapter,
+                expected_state=state_snapshot,
+                title=title,
+                body=final_body,
+                memory=extracted_memory,
+            )
+            if progress_warning:
+                warnings.append(progress_warning)
 
         warnings = list(dict.fromkeys(warnings))
+        quality_lint = lint_prose(final_body, language=context.language)
         return {
             "status": "written_with_warnings" if warnings else "written",
             "chapter": chapter,
             "title": title,
             "chapter_file": str(chapter_path),
             "character_count": len(final_body),
+            "language": context.language,
+            "scene_beats": list(context.scene_beats),
+            "active_entities": [item["name"] for item in context.active_entities],
+            "foreshadowing_alerts": list(context.foreshadowing_alerts),
+            "quality_lint": quality_lint,
             "warnings": warnings,
             "model_calls": calls,
             "next_command": f"/webnovel-write {chapter + 1}",

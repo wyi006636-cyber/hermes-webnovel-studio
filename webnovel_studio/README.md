@@ -8,13 +8,17 @@ A prompt or a single skill can write *a* chapter. A serialized novel also needs 
 
 | What a long serial needs | What the plugin does |
 |---|---|
-| Story memory across 100+ chapters | Before each chapter, a context-curator role assembles the outline, settings, character state and recent prose from the project files, not from chat history |
+| Story memory across 100+ chapters | **Codex Smart Entity Detection + Zero-API-Key SQLite FTS5 Recall**: scans each chapter's outline for characters, locations, and items, injects their latest progression state, and retrieves matching passages from earlier chapters via local SQLite FTS5 / BM25 |
+| Foreshadowing & narrative debt tracking | **Foreshadowing Debt Guardian**: tracks planted clues across chapters, calculates urgency scores as chapters elapse, and alerts the writer before overdue threads are forgotten |
+| Scene-level pacing & anti-AI-cliché prose | **Scene Beats Funnel + Deterministic De-AI Linter**: decomposes chapter cards into 4 playable scene beats (with POV, sensory anchors, and 1–10 tension curve) and scans drafts against curated Chinese & English AI cliché dictionaries before literary editing |
+| Bilingual creative workflow (中文 & English) | **Bilingual Auto-Detection**: automatically adapts architect, writer, and De-AI linter pipelines to Chinese web novels (起点/番茄风格) or English progression fantasy / web serials |
+| Live Knowledge Graph & Dashboard sync | **Post-Chapter State & Graph Sync**: every written or reviewed chapter automatically updates `.webnovel/state.json` and `.webnovel/index.db` (entities, relationships, state changes, foreshadowing, hook strength, and review metrics) for live visualization |
 | Never losing a chapter | Each write is a **resumable run** (`.webnovel/runs/<id>/run.json`) that can be resumed or aborted after a crash or timeout |
 | One writer at a time | A cross-process **project lock** stops two sessions from writing the same book at once |
 | Protecting the book's canonical state | A `pre_tool_call` **guard** blocks other tools (shell, file edits) from silently rewriting `.webnovel/state.json`, `index.db` or published chapters, so all changes go through the runtime |
 | Right model for each job | Calls are routed by role through Hermes's own `ctx.llm` (architect, context curator, writer, reader-editor), each with its own temperature and timeout. The plugin never sees an API key |
 | Picking up where you left off | A `pre_llm_call` hook adds a one-line project summary (title, current chapter, word count) when you continue a session |
-| Seeing the whole book | A local, read-only dashboard shows characters, foreshadowing, pacing and files |
+| Seeing the whole book | A local, read-only dashboard shows characters, relationships, foreshadowing, pacing and files in real time |
 
 ## Install
 

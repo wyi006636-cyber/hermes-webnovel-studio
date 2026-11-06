@@ -7,7 +7,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from .de_ai_linter import lint_prose
 from .project_lock import ProjectLock, ProjectLockError
+from .story_state_sync import StoryStateSync
 
 
 class NovelQualityError(RuntimeError):
@@ -113,6 +115,7 @@ class NovelQualityService:
 
         reports: list[str] = []
         warnings: list[str] = []
+        lint_summaries: dict[int, dict[str, Any]] = {}
         for chapter in range(start_chapter, end_chapter + 1):
             chapter_path = self._chapter_file(chapter)
             if chapter_path is None:
@@ -121,6 +124,8 @@ class NovelQualityService:
             try:
                 manuscript_bytes = chapter_path.read_bytes()
                 manuscript = manuscript_bytes.decode("utf-8")
+                lint = lint_prose(manuscript)
+                lint_summaries[chapter] = lint
                 result = self.router.complete(
                     "reader_editor",
                     [
@@ -159,6 +164,26 @@ class NovelQualityService:
                             f"chapter {chapter} changed during review; report discarded"
                         )
                     self._atomic_text(report_path, report_text)
+                    if (self.project_root / ".webnovel" / "state.json").is_file():
+                        try:
+                            StoryStateSync(self.project_root).sync_after_review(
+                                start_chapter=chapter,
+                                end_chapter=chapter,
+                                overall_score=float(lint["freshness_score"]),
+                                dimension_scores={
+                                    "freshness": float(lint["freshness_score"]),
+                                    "tension": float(lint["hook"]["tension_score"] * 10),
+                                    "dialogue_balance": float(min(100.0, lint["dialogue_ratio"] * 100 + 50)),
+                                },
+                                severity_counts={
+                                    "cliches": int(lint["cliche_count"]),
+                                    "repetitive_openings": len(lint["repetitive_openings"]),
+                                },
+                                critical_issues=lint["edit_directives"],
+                                report_file=str(report_path),
+                            )
+                        except Exception:
+                            pass
                 reports.append(str(report_path))
             except ProjectLockError:
                 raise
@@ -170,6 +195,7 @@ class NovelQualityService:
             "start_chapter": start_chapter,
             "end_chapter": end_chapter,
             "reports": reports,
+            "lint_summaries": lint_summaries,
             "warnings": warnings,
             "manuscripts_modified": False,
         }
