@@ -255,13 +255,34 @@ def test_environment_bridge_forwards_only_allowlisted_variables(tmp_path: Path) 
             "PYTHONPATH": "/somewhere/else",
         },
         data_root=tmp_path / "data",
+        import_path=[str(tmp_path), "", str(tmp_path), str(tmp_path / "missing")],
     )
 
+    assert child_env["PYTHONPATH"] == str(tmp_path)
     assert child_env["PATH"] == "/usr/bin"
     assert child_env["LANG"] == "zh_CN.UTF-8"
     assert child_env["LC_ALL"] == "zh_CN.UTF-8"
-    for leaked in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "EMBED_API_KEY", "HERMES_HOME", "PYTHONPATH"):
+    for leaked in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "EMBED_API_KEY", "HERMES_HOME"):
         assert leaked not in child_env
+    assert "/somewhere/else" not in child_env["PYTHONPATH"]
+
+
+def test_environment_bridge_mirrors_parent_import_path_by_default(tmp_path: Path) -> None:
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    upstream = make_upstream(tmp_path / "upstream")
+    project = make_project(tmp_path / "project")
+
+    child_env = build_subprocess_env(
+        adapter_root=adapter,
+        upstream_root=upstream,
+        project_root=project,
+        base_env={},
+        data_root=tmp_path / "data",
+    )
+
+    expected = [entry for entry in sys.path if entry and os.path.exists(entry)]
+    assert child_env["PYTHONPATH"].split(os.pathsep) == list(dict.fromkeys(expected))
 
 
 def test_environment_bridge_defaults_to_plugin_data_dir(

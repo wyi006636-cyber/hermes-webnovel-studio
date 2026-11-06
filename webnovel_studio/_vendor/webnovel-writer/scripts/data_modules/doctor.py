@@ -290,25 +290,18 @@ def _sqlite_checks(project_root: Path) -> list[dict[str, Any]]:
 
 
 def _rag_checks(project_root: Path) -> list[dict[str, Any]]:
-    cfg = DataModulesConfig.from_project_root(project_root)
-    checks: list[dict[str, Any]] = []
-    for key, present, base_url, model in (
-        ("embed", bool(str(cfg.embed_api_key or "").strip()), cfg.embed_base_url, cfg.embed_model),
-        ("rerank", bool(str(cfg.rerank_api_key or "").strip()), cfg.rerank_base_url, cfg.rerank_model),
-    ):
-        checks.append(
-            _check(
-                f"rag.{key}.api_key",
-                status=CHECK_OK if present else CHECK_WARNING,
-                severity="info" if present else "warning",
-                message=f"{key} api key configured",
-                expected="api key present in env or .env",
-                actual=f"present; model={model}; base_url={base_url}" if present else f"missing; model={model}; base_url={base_url}",
-                impact="" if present else "RAG 相关调用会不可用或降级。",
-                repair="" if present else "复制 .env.example 为 .env，并填写对应 API key；不要把真实 key 提交到仓库。",
-            )
+    # Hermes build: vector retrieval is disabled, so there is nothing to configure.
+    del project_root
+    return [
+        _check(
+            "rag.disabled",
+            status=CHECK_SKIPPED,
+            severity="info",
+            message="vector retrieval is disabled in the Hermes build",
+            expected="local retrieval only",
+            actual="disabled",
         )
-    return checks
+    ]
 
 
 def _projection_log_checks(project_root: Path, snapshot: ProjectPhaseSnapshot) -> list[dict[str, Any]]:
@@ -386,7 +379,7 @@ def _python_checks() -> list[dict[str, Any]]:
             repair="" if sys.version_info >= (3, 10) else "切换到 Python 3.10 或更高版本。",
         )
     ]
-    for module_name in ("aiohttp", "filelock", "pydantic"):
+    for module_name in ("filelock", "pydantic"):  # Hermes build: aiohttp unused (no RAG)
         found = importlib.util.find_spec(module_name) is not None
         checks.append(
             _check(

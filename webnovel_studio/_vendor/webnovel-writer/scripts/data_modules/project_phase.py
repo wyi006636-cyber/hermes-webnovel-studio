@@ -60,7 +60,7 @@ INIT_REQUIRED_FILES = (
     "设定集/主角卡.md",
     "设定集/反派设计.md",
     "大纲/总纲.md",
-    ".env.example",
+    # Hermes build: no .env.example (credentials never come from .env files).
 )
 
 COMMIT_ARTIFACT_FILES = (

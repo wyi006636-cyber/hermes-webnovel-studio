@@ -72,7 +72,7 @@ roles:
 
 Please read this before installing.
 
-- **Subprocesses.** The novel engine runs as a Python subprocess (`_vendor/webnovel-writer/scripts/webnovel.py`), using the same interpreter Hermes runs on, with `shell=False`. The child process gets an **allowlisted environment only** (paths, locale, temp directories). Hermes credentials and other environment variables are never passed to it.
+- **Subprocesses.** The novel engine runs as a Python subprocess (`_vendor/webnovel-writer/scripts/webnovel.py`), using the same interpreter and import path Hermes runs on, with `shell=False`. The child process gets an **allowlisted environment only** (paths, locale, temp directories, plus `PYTHONPATH` so it sees the plugin's installed dependencies). Hermes credentials and other environment variables are never passed to it.
 - **Background process.** `/webnovel-dashboard` starts a local web server (uvicorn) bound to `127.0.0.1` on a free port. It serves read-only GET endpoints and stops when you ask, or when Hermes exits.
 - **Files read and written.** The plugin reads and writes only inside the novel project folder you name (`设定集/`, `大纲/`, `正文/`, `.webnovel/`) and inside its own Hermes data directory, `<hermes home>/plugin-data/webnovel-studio/`, which holds an optional `config.yaml` and the engine's project registry. Overwriting an existing chapter needs explicit confirmation (`--rewrite`).
 - **Network.** The plugin makes **no network calls of its own**. All model calls go through Hermes (`ctx.llm`). The upstream engine's optional vector retrieval feature, which sends text to third-party embedding/rerank APIs, is **disabled** in this build, and the engine never reads `.env` files.
@@ -83,11 +83,12 @@ Please read this before installing.
 
 ## Credits and license
 
-Webnovel Studio is **derived from [lingfengQAQ/webnovel-writer](https://github.com/lingfengQAQ/webnovel-writer)** (GPL-3.0), the Claude Code plugin whose engine (project layout, state store, story contracts, dashboard) is vendored under `webnovel_studio/_vendor/webnovel-writer/`. The vendored copy is a *reduced* tree of upstream tag `v6.2.1` (commit `59654ccaa17f240c5ae41fe51db9443284f8ca1f`) with three small, reviewable patches in [`vendor-patches/`](https://github.com/wyi006636-cyber/hermes-webnovel-studio/tree/main/vendor-patches):
+Webnovel Studio is **derived from [lingfengQAQ/webnovel-writer](https://github.com/lingfengQAQ/webnovel-writer)** (GPL-3.0), the Claude Code plugin whose engine (project layout, state store, story contracts, dashboard) is vendored under `webnovel_studio/_vendor/webnovel-writer/`. The vendored copy is a *reduced* tree of upstream tag `v6.2.1` (commit `59654ccaa17f240c5ae41fe51db9443284f8ca1f`) with four small, reviewable patches in [`vendor-patches/`](https://github.com/wyi006636-cyber/hermes-webnovel-studio/tree/main/vendor-patches):
 
 1. `0001`: preflight no longer requires the Claude Code skill tree (this plugin ships its own Hermes skills).
 2. `0002`: vector retrieval and `.env` loading are disabled, so the engine makes no network calls.
 3. `0003`: removes the engine's built-in self-test block and renames an HTML marker. Both were false positives in the Hermes install scanner.
+4. `0004`: `doctor` reports the Hermes build profile, with vector retrieval shown as disabled and no `.env.example` or `aiohttp` expected.
 
 `python scripts/vendor_upstream.py --upstream <clone> --check` rebuilds the vendor tree from upstream plus these patches and verifies it byte for byte.
 

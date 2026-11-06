@@ -18,7 +18,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Mapping, Sequence
 
 
 PROJECT_ROOT_ENV = "WEBNOVEL_PROJECT_ROOT"
@@ -232,12 +232,14 @@ def build_subprocess_env(
     project_root: str | os.PathLike[str],
     base_env: Mapping[str, str] | None = None,
     data_root: str | os.PathLike[str] | None = None,
+    import_path: Sequence[str] | None = None,
 ) -> dict[str, str]:
     """Build the allowlisted child environment for the engine CLI.
 
     Only locale/path/temp variables are copied from ``base_env``; the engine's
     Claude-compatible root variables are pointed at the plugin, the project and
-    the per-plugin data directory.
+    the per-plugin data directory, and ``PYTHONPATH`` mirrors the parent's
+    import path (``sys.path`` unless *import_path* is given).
     """
 
     source = _environment(base_env)
@@ -264,7 +266,30 @@ def build_subprocess_env(
             "WEBNOVEL_CLAUDE_HOME": str(engine_home.resolve(strict=False)),
         }
     )
+    inherited_path = _inherited_import_path(sys.path if import_path is None else import_path)
+    if inherited_path:
+        child["PYTHONPATH"] = inherited_path
     return child
+
+
+def _inherited_import_path(entries: Sequence[str]) -> str:
+    """Join the parent's import path so the child sees the same packages.
+
+    Hermes may run on a shared interpreter and attach the dependency
+    environment (where the plugin's ``python_dependencies`` are installed) to
+    ``sys.path`` at startup rather than through the interpreter's own
+    site-packages. Re-exporting the parent's import path is the only way for
+    ``sys.executable`` children to import exactly what the plugin itself can.
+    """
+
+    seen: set[str] = set()
+    kept: list[str] = []
+    for entry in entries:
+        if not entry or entry in seen or not os.path.exists(entry):
+            continue
+        seen.add(entry)
+        kept.append(entry)
+    return os.pathsep.join(kept)
 
 
 class UpstreamBridge:
