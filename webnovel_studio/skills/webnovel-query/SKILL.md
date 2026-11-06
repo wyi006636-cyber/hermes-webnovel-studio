@@ -6,7 +6,7 @@ author: Webnovel Writer Hermes contributors
 license: GPL-3.0-only
 platforms: [linux, macos, windows]
 allowed-tools: [webnovel_runtime]
-argument-hint: "[查询词，如 角色名/伏笔/境界]"
+argument-hint: "[character, foreshadowing, power level... / 角色名、伏笔、境界]"
 metadata:
   hermes:
     requires_tools: [webnovel_runtime]

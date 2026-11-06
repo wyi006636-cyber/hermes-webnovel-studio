@@ -62,14 +62,19 @@ class RuntimeInputError(ValueError):
     """Raised when runtime input cannot be safely normalized."""
 
 
-def _assert_no_symlink_components(path: Path, *, label: str) -> Path:
+def _canonical_path(path: Path) -> Path:
+    """Return the absolute, symlink-free form of a user-supplied path.
+
+    Symlinked ancestors are normal on real machines (``/tmp`` on macOS, synced
+    folders, external drives), so they are resolved rather than refused. Every
+    later containment check runs against this canonical path, and links
+    *inside* a project are still rejected where the project is inspected.
+    """
+
     requested = path.expanduser()
     if not requested.is_absolute():
         requested = Path.cwd() / requested
-    for component in (requested, *requested.parents):
-        if component.is_symlink():
-            raise RuntimeInputError(f"{label} path must not contain a symlink")
-    return requested
+    return requested.resolve(strict=False)
 
 
 def _prepare_init_target(raw_root: str | os.PathLike[str], payload: Mapping[str, Any]) -> Path:
@@ -78,19 +83,23 @@ def _prepare_init_target(raw_root: str | os.PathLike[str], payload: Mapping[str,
     target = Path(raw_root).expanduser()
     if not target.is_absolute():
         raise RuntimeInputError("project_init project_root must be an absolute path")
-    target = _assert_no_symlink_components(target, label="project_init target")
-    target = target.resolve(strict=False)
-    adapter_root = Path(__file__).resolve().parents[1]
+    target = _canonical_path(target)
+    adapter_root = Path(__file__).resolve().parent
     upstream_root = resolve_upstream_root().resolve()
     if target == adapter_root or target.is_relative_to(adapter_root):
         raise RuntimeInputError("project_init target must not be inside the adapter")
     if target == upstream_root or target.is_relative_to(upstream_root):
         raise RuntimeInputError("project_init target must not be inside vendored upstream")
-    parent = target.parent.resolve(strict=True)
-    if not parent.is_dir() or parent.is_symlink():
-        raise RuntimeInputError("project_init target parent is unsafe")
+    try:
+        parent = target.parent.resolve(strict=True)
+    except OSError as exc:
+        raise RuntimeInputError(
+            f"project_init parent directory does not exist: {target.parent}"
+        ) from exc
+    if not parent.is_dir():
+        raise RuntimeInputError("project_init target parent is not a directory")
     if target.exists():
-        if target.is_symlink() or not target.is_dir():
+        if not target.is_dir():
             raise RuntimeInputError("project_init target must be a safe directory")
         state_path = target / ".webnovel" / "state.json"
         if state_path.is_symlink():
@@ -113,9 +122,7 @@ def _prepare_init_target(raw_root: str | os.PathLike[str], payload: Mapping[str,
 
 
 def _resolve_human_novel_root(raw_root: str | os.PathLike[str]) -> Path:
-    requested = _assert_no_symlink_components(
-        Path(raw_root), label="novel project"
-    )
+    requested = _canonical_path(Path(raw_root))
     try:
         root = requested.resolve(strict=True)
     except OSError as exc:
@@ -836,7 +843,6 @@ def execute_runtime(
         raw_root = args.get("project_root")
         if not isinstance(raw_root, (str, os.PathLike)):
             raise RuntimeInputError("project_root is required and must be a path string")
-        _assert_no_symlink_components(Path(raw_root), label="project root")
         if action == "project_init":
             payload = _payload(args)
             if payload.get("confirmed") is True:
@@ -845,10 +851,11 @@ def execute_runtime(
                 target = Path(raw_root).expanduser()
                 if not target.is_absolute():
                     raise RuntimeInputError("project_init project_root must be an absolute path")
-                parent = target.parent.resolve(strict=True)
-                if not parent.is_dir() or parent.is_symlink():
-                    raise RuntimeInputError("project_init parent directory is unsafe")
-                project_root = target.resolve(strict=False)
+                project_root = _canonical_path(target)
+                if not project_root.parent.is_dir():
+                    raise RuntimeInputError(
+                        f"project_init parent directory does not exist: {project_root.parent}"
+                    )
         elif action in {"write_chapter", "review_range"}:
             project_root = _resolve_human_novel_root(raw_root)
         else:

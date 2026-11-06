@@ -1,0 +1,5 @@
+# Development configuration only. Hermes reads the plugin manifest from
+# webnovel_studio/plugin.yaml; this file is not part of the installed plugin.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

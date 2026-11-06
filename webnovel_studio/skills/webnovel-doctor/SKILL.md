@@ -1,6 +1,6 @@
 ---
 name: webnovel-doctor
-description: Use when the author invokes /webnovel-doctor for stage-aware, read-only diagnosis of project files, data stores, dependencies, RAG configuration, and dashboard assets.
+description: Use when the author invokes /webnovel-doctor for stage-aware, read-only diagnosis of project files, data stores, dependencies, and dashboard assets (vector retrieval is disabled in this build).
 version: 1.0.0
 author: Webnovel Writer Hermes contributors
 license: GPL-3.0-only
@@ -42,7 +42,7 @@ metadata:
 - 项目结构和阶段应有目录。
 - 状态、创意档案、主设定、卷/章合同、正文、提交和投影的存在性与格式。
 - SQLite 可读性和必要表。
-- RAG 配置与可用性，只报告状态不读取密钥。
+- 向量检索（RAG）在本插件中已关闭：如上游报告 RAG 未配置，这是预期状态，不是故障，不要建议用户配置任何 API Key。
 - Python 运行依赖与 Dashboard 前端产物。
 - 当前 run 是否失败、可恢复或被锁占用。
 

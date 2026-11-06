@@ -6,7 +6,7 @@ author: Webnovel Writer Hermes contributors
 license: GPL-3.0-only
 platforms: [linux, macos, windows]
 allowed-tools: [webnovel_runtime]
-argument-hint: "[书名、灵感或一句话故事]"
+argument-hint: "[title, premise or one-line story / 书名、灵感或一句话故事]"
 metadata:
   hermes:
     requires_tools: [webnovel_runtime]

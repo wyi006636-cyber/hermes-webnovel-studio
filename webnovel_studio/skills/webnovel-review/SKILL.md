@@ -6,7 +6,7 @@ author: Webnovel Writer Hermes contributors
 license: GPL-3.0-only
 platforms: [linux, macos, windows]
 allowed-tools: [webnovel_runtime]
-argument-hint: "[起始章] [可选结束章]"
+argument-hint: "[from chapter] [optional to chapter] / [起始章] [结束章]"
 metadata:
   hermes:
     requires_tools: [webnovel_runtime]

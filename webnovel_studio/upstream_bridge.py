@@ -1,15 +1,19 @@
 """Compatibility bridge from the Hermes adapter to the vendored upstream CLI.
 
 This module deliberately stops at the subprocess boundary.  It resolves and
-validates the three roots, builds an isolated compatibility environment, and
-invokes upstream's single ``scripts/webnovel.py`` entry point without a shell.
-It does not implement workflow state, LLM behavior, or Hermes hooks.
+validates the three roots, builds a minimal child environment, and invokes
+upstream's single ``scripts/webnovel.py`` entry point without a shell, using
+the interpreter Hermes itself runs on. It does not implement workflow state,
+LLM behavior, or Hermes hooks.
+
+The child process receives an allowlisted environment only (locale, paths and
+temp directories plus the engine's own root variables). Hermes credentials and
+other variables in the parent environment are never forwarded.
 """
 
 from __future__ import annotations
 
 import os
-import json
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -17,13 +21,36 @@ from pathlib import Path
 from typing import Mapping
 
 
-ADAPTER_ROOT_ENV = "WEBNOVEL_HERMES_ROOT"
-UPSTREAM_ROOT_ENV = "WEBNOVEL_UPSTREAM_ROOT"
 PROJECT_ROOT_ENV = "WEBNOVEL_PROJECT_ROOT"
 PROJECT_MARKER = Path(".webnovel") / "state.json"
 UPSTREAM_CLI = Path("scripts") / "webnovel.py"
-INSTALL_MARKER = ".webnovel-hermes-install.json"
-INSTALL_MARKER_SCHEMA = "webnovel-hermes-install/v1"
+VENDOR_DIR = Path("_vendor") / "webnovel-writer"
+
+# Parent variables a Python child process legitimately needs. Everything else
+# (API keys, tokens, Hermes settings) stays in the Hermes process.
+_CHILD_ENV_ALLOWLIST = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "LANG",
+        "LANGUAGE",
+        "TZ",
+        "TMPDIR",
+        "TEMP",
+        "TMP",
+        # Windows process essentials.
+        "SYSTEMROOT",
+        "SYSTEMDRIVE",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+    }
+)
 
 
 class BridgeError(RuntimeError):
@@ -98,50 +125,33 @@ def _require_directory(path: Path, *, label: str) -> Path:
     return path
 
 
-def resolve_adapter_root(
-    explicit: str | os.PathLike[str] | None = None,
-    *,
-    environ: Mapping[str, str] | None = None,
-) -> Path:
-    """Resolve the Hermes adapter/plugin directory.
+def resolve_adapter_root(explicit: str | os.PathLike[str] | None = None) -> Path:
+    """Resolve the Hermes plugin directory.
 
-    An explicit argument is accepted for dependency injection.  Otherwise
-    ``WEBNOVEL_HERMES_ROOT`` wins over the package directory.
+    An explicit argument is accepted for dependency injection; otherwise the
+    package directory is used. Code locations are never taken from the
+    environment.
     """
 
-    env = _environment(environ)
-    configured = _configured_path(explicit, env, ADAPTER_ROOT_ENV)
     root = (
-        _normalize_path(configured)
-        if configured is not None
+        _normalize_path(explicit)
+        if explicit is not None
         else Path(__file__).resolve().parent
     )
     return _require_directory(root, label="adapter root")
 
 
-def resolve_upstream_root(
-    explicit: str | os.PathLike[str] | None = None,
-    *,
-    environ: Mapping[str, str] | None = None,
-) -> Path:
-    """Resolve and validate the upstream Webnovel Writer plugin root."""
+def resolve_upstream_root(explicit: str | os.PathLike[str] | None = None) -> Path:
+    """Resolve and validate the vendored Webnovel Writer engine root.
 
-    env = _environment(environ)
-    configured = _configured_path(explicit, env, UPSTREAM_ROOT_ENV)
-    if configured is not None:
-        root = _normalize_path(configured)
+    The engine always ships inside the plugin (``_vendor/webnovel-writer``).
+    An explicit argument is accepted for dependency injection only.
+    """
+
+    if explicit is not None:
+        root = _normalize_path(explicit)
     else:
-        package_root = Path(__file__).resolve().parent
-        installed_vendor = package_root / "_vendor" / "webnovel-writer"
-        repository_vendor = (
-            package_root.parent
-            / "upstream"
-            / "webnovel-writer"
-            / "webnovel-writer"
-        )
-        root = (
-            installed_vendor if installed_vendor.is_dir() else repository_vendor
-        ).resolve()
+        root = (Path(__file__).resolve().parent / VENDOR_DIR).resolve()
     _require_directory(root, label="upstream root")
     cli = root / UPSTREAM_CLI
     if not cli.is_file():
@@ -188,53 +198,15 @@ def resolve_project_root(
     )
 
 
-def _venv_python(root: Path) -> Path:
-    return root / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+def resolve_python_executable(explicit: str | os.PathLike[str] | None = None) -> Path:
+    """Return the interpreter used for engine subprocesses.
 
+    This is the interpreter Hermes runs on (``sys.executable``), which is where
+    Hermes installs the plugin's declared ``python_dependencies``. An explicit
+    path is accepted for dependency injection in tests.
+    """
 
-def _installed_runtime_python(adapter_root: Path) -> Path | None:
-    marker_path = adapter_root / INSTALL_MARKER
-    if not marker_path.is_file() or marker_path.is_symlink():
-        return None
-    try:
-        marker = json.loads(marker_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise BridgeError("installed runtime marker is invalid") from exc
-    if not isinstance(marker, dict) or marker.get("schema") != INSTALL_MARKER_SCHEMA:
-        raise BridgeError("installed runtime marker is invalid")
-    source = marker.get("source")
-    runtime = marker.get("runtime_python")
-    if runtime is None:
-        return None
-    if not isinstance(source, str) or not isinstance(runtime, str):
-        raise BridgeError("installed runtime marker is invalid")
-    expected = _venv_python(Path(source).expanduser().parent)
-    candidate = Path(runtime).expanduser()
-    if candidate != expected:
-        raise BridgeError("installed runtime marker has an unexpected interpreter")
-    return candidate
-
-
-def resolve_python_executable(
-    explicit: str | os.PathLike[str] | None = None,
-    *,
-    project_root: Path | None = None,
-    adapter_root: Path | None = None,
-) -> Path:
-    """Resolve upstream Python, preferring managed project virtual environments."""
-
-    if explicit is not None:
-        raw = explicit
-    else:
-        candidates: list[Path] = []
-        if project_root is not None:
-            candidates.append(_venv_python(project_root))
-        if adapter_root is not None:
-            candidates.append(_venv_python(adapter_root.parent))
-            installed = _installed_runtime_python(adapter_root)
-            if installed is not None:
-                candidates.append(installed)
-        raw = next((candidate for candidate in candidates if candidate.exists()), sys.executable)
+    raw = explicit if explicit is not None else sys.executable
     # Do not dereference a virtualenv's interpreter symlink: the stable contract
     # is to reuse the exact current ``sys.executable`` path.
     executable = Path(os.path.abspath(os.path.expanduser(os.fspath(raw))))
@@ -247,29 +219,39 @@ def resolve_python_executable(
     return executable
 
 
+def _default_data_root() -> Path:
+    from .config import plugin_data_root
+
+    return plugin_data_root()
+
+
 def build_subprocess_env(
     *,
     adapter_root: str | os.PathLike[str],
     upstream_root: str | os.PathLike[str],
     project_root: str | os.PathLike[str],
     base_env: Mapping[str, str] | None = None,
+    data_root: str | os.PathLike[str] | None = None,
 ) -> dict[str, str]:
-    """Build the child-only Claude/Hermes compatibility environment."""
+    """Build the allowlisted child environment for the engine CLI.
 
-    source = dict(_environment(base_env))
-    adapter = resolve_adapter_root(adapter_root, environ={})
-    upstream = resolve_upstream_root(upstream_root, environ={})
+    Only locale/path/temp variables are copied from ``base_env``; the engine's
+    Claude-compatible root variables are pointed at the plugin, the project and
+    the per-plugin data directory.
+    """
+
+    source = _environment(base_env)
+    adapter = resolve_adapter_root(adapter_root)
+    upstream = resolve_upstream_root(upstream_root)
     project = resolve_project_root(project_root, environ={})
+    engine_home = _normalize_path(data_root) if data_root is not None else _default_data_root()
 
-    hermes_home_raw = source.get("HERMES_HOME")
-    if hermes_home_raw:
-        hermes_home = _normalize_path(hermes_home_raw)
-    else:
-        home_raw = source.get("HOME")
-        home = _normalize_path(home_raw) if home_raw else Path.home().resolve()
-        hermes_home = home / ".hermes"
-
-    source.update(
+    child = {
+        key: value
+        for key, value in source.items()
+        if key in _CHILD_ENV_ALLOWLIST or key.startswith("LC_")
+    }
+    child.update(
         {
             "WEBNOVEL_HERMES_ROOT": str(adapter),
             "WEBNOVEL_UPSTREAM_ROOT": str(upstream),
@@ -277,12 +259,12 @@ def build_subprocess_env(
             "CLAUDE_PLUGIN_ROOT": str(upstream),
             "CLAUDE_PROJECT_DIR": str(project),
             "PYTHONIOENCODING": "utf-8",
-            "WEBNOVEL_CLAUDE_HOME": str(
-                (hermes_home / "webnovel-writer").resolve(strict=False)
-            ),
+            # Keep the installed plugin tree free of __pycache__ files.
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "WEBNOVEL_CLAUDE_HOME": str(engine_home.resolve(strict=False)),
         }
     )
-    return source
+    return child
 
 
 class UpstreamBridge:
@@ -297,28 +279,22 @@ class UpstreamBridge:
         python_executable: str | os.PathLike[str] | None = None,
         cwd: str | os.PathLike[str] | None = None,
         environ: Mapping[str, str] | None = None,
+        data_root: str | os.PathLike[str] | None = None,
     ) -> None:
         self._base_env = dict(_environment(environ))
-        self.adapter_root = resolve_adapter_root(
-            adapter_root, environ=self._base_env
-        )
-        self.upstream_root = resolve_upstream_root(
-            upstream_root, environ=self._base_env
-        )
+        self.adapter_root = resolve_adapter_root(adapter_root)
+        self.upstream_root = resolve_upstream_root(upstream_root)
         self.project_root = resolve_project_root(
             project_root, cwd=cwd, environ=self._base_env
         )
-        self.python_executable = resolve_python_executable(
-            python_executable,
-            project_root=self.project_root,
-            adapter_root=self.adapter_root,
-        )
+        self.python_executable = resolve_python_executable(python_executable)
         self.cli_path = self.upstream_root / UPSTREAM_CLI
         self.child_env = build_subprocess_env(
             adapter_root=self.adapter_root,
             upstream_root=self.upstream_root,
             project_root=self.project_root,
             base_env=self._base_env,
+            data_root=data_root,
         )
 
     def command(

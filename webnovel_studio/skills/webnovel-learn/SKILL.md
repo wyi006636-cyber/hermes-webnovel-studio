@@ -6,7 +6,7 @@ author: Webnovel Writer Hermes contributors
 license: GPL-3.0-only
 platforms: [linux, macos, windows]
 allowed-tools: [webnovel_runtime]
-argument-hint: "[要记住的写作经验]"
+argument-hint: "[writing lesson to remember / 要记住的写作经验]"
 metadata:
   hermes:
     requires_tools: [webnovel_runtime]

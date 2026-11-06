@@ -6,7 +6,7 @@ author: Webnovel Writer Hermes contributors
 license: GPL-3.0-only
 platforms: [linux, macos, windows]
 allowed-tools: [webnovel_runtime]
-argument-hint: "[卷号] [可选章节范围] [特殊要求]"
+argument-hint: "[volume] [optional chapter range] [notes] / [卷号] [章节范围] [特殊要求]"
 metadata:
   hermes:
     requires_tools: [webnovel_runtime]

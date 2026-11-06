@@ -34,7 +34,7 @@ MESSAGES = [{"role": "user", "content": "private manuscript text"}]
 
 
 def write_user_config(home: Path, text: str) -> Path:
-    path = home / "webnovel-writer" / "config.yaml"
+    path = home / "plugin-data" / "webnovel-studio" / "config.yaml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
@@ -199,16 +199,21 @@ def test_unset_hermes_home_uses_dot_hermes_under_home_without_touching_real_home
     assert config.roles["context_curator"].timeout == 77.0
 
 
-def test_active_hermes_profile_helper_wins_over_process_environment(
+def test_hermes_plugin_data_dir_wins_over_process_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     process_home = tmp_path / "process-home"
     profile_home = tmp_path / "profile-home"
     write_user_config(process_home, "roles:\n  writer:\n    timeout: 11\n")
     write_user_config(profile_home, "roles:\n  writer:\n    timeout: 22\n")
-    module = ModuleType("hermes_constants")
-    module.get_hermes_home = lambda: profile_home  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "hermes_constants", module)
+    package = ModuleType("plugins")
+    package.__path__ = []  # type: ignore[attr-defined]
+    module = ModuleType("plugins.plugin_storage")
+    module.plugin_data_dir = (  # type: ignore[attr-defined]
+        lambda name: profile_home / "plugin-data" / name
+    )
+    monkeypatch.setitem(sys.modules, "plugins", package)
+    monkeypatch.setitem(sys.modules, "plugins.plugin_storage", module)
     monkeypatch.setenv("HERMES_HOME", str(process_home))
 
     config = load_webnovel_config()

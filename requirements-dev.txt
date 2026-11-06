@@ -1,0 +1,9 @@
+# Test/development dependencies (the plugin's runtime dependencies are
+# declared in webnovel_studio/plugin.yaml and installed by Hermes).
+pytest>=8,<10
+PyYAML>=6,<7
+filelock>=3.12,<4
+pydantic>=2.5,<3
+fastapi>=0.110,<1
+uvicorn>=0.29,<1
+watchdog>=4,<8

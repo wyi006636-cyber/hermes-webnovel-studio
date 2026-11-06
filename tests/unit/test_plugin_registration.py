@@ -63,7 +63,7 @@ def test_manifest_declares_plugin_surface() -> None:
     manifest_path = REPOSITORY_ROOT / "webnovel_studio" / "plugin.yaml"
     manifest = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
 
-    assert manifest["name"] == "webnovel-writer"
+    assert manifest["name"] == "webnovel-studio"
     assert manifest["provides_tools"] == ["webnovel_runtime"]
     assert manifest["provides_hooks"] == ["pre_tool_call", "pre_llm_call"]
 
@@ -229,7 +229,7 @@ def test_cli_live_smoke_binds_host_llm(
     assert json.loads(capsys.readouterr().out)["success"] is True
 
 
-def test_cli_plain_invocation_fails_closed(capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_plain_invocation_prints_usage(capsys: pytest.CaptureFixture[str]) -> None:
     command = registered_context().cli_commands[0]
     parser = argparse.ArgumentParser(prog="hermes webnovel")
     command["setup_fn"](parser)
@@ -237,9 +237,10 @@ def test_cli_plain_invocation_fails_closed(capsys: pytest.CaptureFixture[str]) -
     with pytest.raises(SystemExit) as exc_info:
         command["handler_fn"](parser.parse_args([]))
 
-    assert exc_info.value.code == 1
-    payload = json.loads(capsys.readouterr().err)
-    assert payload == {"success": False, "error": "not_implemented"}
+    assert exc_info.value.code == 2
+    error = capsys.readouterr().err
+    assert "usage: hermes webnovel" in error.lower()
+    assert "smoke-live" in error
 
 
 def test_real_hermes_registration_in_isolated_home(tmp_path: Path) -> None:
@@ -249,7 +250,7 @@ def test_real_hermes_registration_in_isolated_home(tmp_path: Path) -> None:
     assert hermes_executable is not None
 
     temp_home = tmp_path / "hermes-home"
-    plugin_dir = temp_home / "plugins" / "webnovel-writer"
+    plugin_dir = temp_home / "plugins" / "webnovel-studio"
     plugin_dir.parent.mkdir(parents=True)
     shutil.copytree(REPOSITORY_ROOT / "webnovel_studio", plugin_dir)
     (temp_home / "config.yaml").write_text("plugins:\n  enabled: []\n", encoding="utf-8")
@@ -273,7 +274,7 @@ def test_real_hermes_registration_in_isolated_home(tmp_path: Path) -> None:
         )
         return next(
             item for item in json.loads(result.stdout)
-            if item["name"] == "webnovel-writer"
+            if item["name"] == "webnovel-studio"
         )
 
     assert listed_plugin()["status"] == "not enabled"
@@ -283,7 +284,7 @@ def test_real_hermes_registration_in_isolated_home(tmp_path: Path) -> None:
             hermes_executable,
             "plugins",
             "enable",
-            "webnovel-writer",
+            "webnovel-studio",
             "--no-allow-tool-override",
         ]
     )

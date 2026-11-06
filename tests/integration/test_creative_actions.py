@@ -409,9 +409,11 @@ def test_plan_aborts_when_author_changes_source_during_generation(tmp_path: Path
     assert not (root / "大纲" / "第1卷-详细大纲.md").exists()
 
 
-def test_runtime_rejects_symlinked_project_ancestor_before_init_or_plan(
+def test_runtime_canonicalizes_symlinked_project_ancestor_before_init_or_plan(
     tmp_path: Path,
 ) -> None:
+    """A symlinked ancestor (``/tmp`` on macOS, synced folders) is resolved,
+    and the runtime only ever hands the canonical path to the services."""
     from webnovel_studio import runtime
 
     outside = tmp_path / "outside"
@@ -423,9 +425,9 @@ def test_runtime_rejects_symlinked_project_ancestor_before_init_or_plan(
         pytest.skip(f"symlink unavailable: {exc}")
 
     proposal = {
-        "title": "不能写到外部",
+        "title": "规范路径",
         "genre": "悬疑",
-        "premise": "路径保护测试。",
+        "premise": "路径规范化测试。",
         "protagonist": "林舟。",
         "core_conflict": "寻找真相。",
         "world": "旧港。",
@@ -433,21 +435,10 @@ def test_runtime_rejects_symlinked_project_ancestor_before_init_or_plan(
         "opening": "钥匙送达。",
         "long_arc": "追查失踪案。",
     }
+    # Direct service use still refuses non-canonical paths.
     with pytest.raises(CreativeActionError, match="must not contain a symlink"):
         CreativeProjectService(linked / "direct-service", router=FakeCreativeRouter())
-    with pytest.raises(CreativeActionError, match="must not contain a symlink"):
-        CreativeProjectService(linked, router=FakeCreativeRouter())
-    root_link_result = runtime.execute_runtime(
-        {
-            "action": "project_init",
-            "project_root": str(linked),
-            "payload": {"confirmed": True, "proposal": proposal},
-        },
-        llm=object(),
-    )
-    assert root_link_result["success"] is False
-    assert root_link_result["errors"][0]["code"] == "invalid_arguments"
-    assert list(outside.iterdir()) == []
+
     init_result = runtime.execute_runtime(
         {
             "action": "project_init",
@@ -456,25 +447,19 @@ def test_runtime_rejects_symlinked_project_ancestor_before_init_or_plan(
         },
         llm=object(),
     )
-    assert init_result["success"] is False
-    assert init_result["errors"][0]["code"] == "invalid_arguments"
-    assert not (outside / "new-book").exists()
+    canonical = (outside / "new-book").resolve()
+    assert init_result["project_root"] == str(canonical)
+    assert init_result["success"] is True, init_result
+    assert (canonical / ".webnovel" / "state.json").is_file()
 
-    real_project = outside / "existing-book"
-    service = CreativeProjectService(real_project, router=FakeCreativeRouter())
-    service.initialize(service.propose("旧港悬疑"))
     plan_result = runtime.execute_runtime(
         {
-            "action": "project_plan",
-            "project_root": str(linked / "existing-book"),
-            "volume": 1,
-            "payload": {"start_chapter": 1, "end_chapter": 2},
+            "action": "project_status",
+            "project_root": str(linked / "new-book"),
         },
         llm=object(),
     )
-    assert plan_result["success"] is False
-    assert plan_result["errors"][0]["code"] == "invalid_arguments"
-    assert not (real_project / "大纲" / "第1卷-详细大纲.md").exists()
+    assert plan_result["project_root"] == str(canonical)
 
 
 def test_plan_normalizes_multiline_card_fields_without_injecting_chapter_boundaries(

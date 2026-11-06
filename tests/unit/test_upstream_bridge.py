@@ -22,7 +22,7 @@ from webnovel_studio.upstream_bridge import (
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_UPSTREAM_ROOT = (
-    REPOSITORY_ROOT / "upstream" / "webnovel-writer" / "webnovel-writer"
+    REPOSITORY_ROOT / "webnovel_studio" / "_vendor" / "webnovel-writer"
 )
 
 
@@ -41,35 +41,27 @@ def make_upstream(path: Path) -> Path:
     return path.resolve()
 
 
-def test_adapter_root_defaults_to_package_directory(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("WEBNOVEL_HERMES_ROOT", raising=False)
-
+def test_adapter_root_defaults_to_package_directory() -> None:
     assert resolve_adapter_root() == (REPOSITORY_ROOT / "webnovel_studio").resolve()
 
 
-def test_adapter_root_accepts_environment_override(
+def test_adapter_root_ignores_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    override = tmp_path / "adapter 安装"
+    override = tmp_path / "adapter"
     override.mkdir()
     monkeypatch.setenv("WEBNOVEL_HERMES_ROOT", str(override))
 
-    assert resolve_adapter_root() == override.resolve()
+    assert resolve_adapter_root() == (REPOSITORY_ROOT / "webnovel_studio").resolve()
+    assert resolve_adapter_root(override) == override.resolve()
 
 
-def test_adapter_root_rejects_invalid_override(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    missing = tmp_path / "missing-adapter"
-    monkeypatch.setenv("WEBNOVEL_HERMES_ROOT", str(missing))
-
+def test_adapter_root_rejects_invalid_explicit_path(tmp_path: Path) -> None:
     with pytest.raises(BridgeError, match="adapter root.*does not exist"):
-        resolve_adapter_root()
+        resolve_adapter_root(tmp_path / "missing-adapter")
 
 
-def test_upstream_root_defaults_to_vendored_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("WEBNOVEL_UPSTREAM_ROOT", raising=False)
-
+def test_upstream_root_defaults_to_vendored_engine() -> None:
     assert resolve_upstream_root() == DEFAULT_UPSTREAM_ROOT.resolve()
 
 
@@ -78,18 +70,16 @@ def test_upstream_root_uses_plugin_local_vendor_when_installed(
 ) -> None:
     import webnovel_studio.upstream_bridge as bridge_module
 
-    plugin = tmp_path / "plugins" / "webnovel-writer"
+    plugin = tmp_path / "plugins" / "webnovel-studio"
     installed = make_upstream(plugin / "_vendor" / "webnovel-writer")
     fake_module = plugin / "upstream_bridge.py"
-    fake_module.parent.mkdir(parents=True, exist_ok=True)
     fake_module.write_text("# installed layout\n", encoding="utf-8")
-    monkeypatch.delenv("WEBNOVEL_UPSTREAM_ROOT", raising=False)
     monkeypatch.setattr(bridge_module, "__file__", str(fake_module))
 
     assert bridge_module.resolve_upstream_root() == installed
 
 
-def test_upstream_root_precedence_is_explicit_then_environment(
+def test_upstream_root_ignores_environment_but_accepts_explicit_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     explicit = make_upstream(tmp_path / "explicit")
@@ -97,7 +87,7 @@ def test_upstream_root_precedence_is_explicit_then_environment(
     monkeypatch.setenv("WEBNOVEL_UPSTREAM_ROOT", str(environment))
 
     assert resolve_upstream_root(explicit) == explicit
-    assert resolve_upstream_root() == environment
+    assert resolve_upstream_root() == DEFAULT_UPSTREAM_ROOT.resolve()
 
 
 def test_upstream_root_rejects_missing_unified_cli(tmp_path: Path) -> None:
@@ -180,77 +170,16 @@ def test_python_executable_defaults_to_current_interpreter() -> None:
     assert resolve_python_executable() == Path(sys.executable)
 
 
-def _make_venv_python(root: Path) -> Path:
-    executable = root / ".venv" / (
+def test_python_executable_never_uses_a_project_virtualenv(tmp_path: Path) -> None:
+    project = tmp_path / "novel"
+    executable = project / ".venv" / (
         "Scripts/python.exe" if os.name == "nt" else "bin/python"
     )
     executable.parent.mkdir(parents=True)
     executable.write_text("", encoding="utf-8")
     executable.chmod(0o755)
-    return executable
 
-
-def test_python_executable_prefers_project_virtualenv(tmp_path: Path) -> None:
-    project = tmp_path / "novel"
-    project.mkdir()
-    adapter = tmp_path / "adapter"
-    adapter.mkdir()
-    expected = _make_venv_python(project)
-
-    assert resolve_python_executable(
-        project_root=project, adapter_root=adapter
-    ) == expected
-
-
-def test_python_executable_uses_installer_managed_source_virtualenv(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "novel"
-    project.mkdir()
-    adapter = tmp_path / "plugins" / "webnovel-writer"
-    adapter.mkdir(parents=True)
-    source = tmp_path / "source" / "webnovel_studio"
-    source.mkdir(parents=True)
-    expected = _make_venv_python(source.parent)
-    (adapter / ".webnovel-hermes-install.json").write_text(
-        json.dumps(
-            {
-                "schema": "webnovel-hermes-install/v1",
-                "source": str(source),
-                "runtime_python": str(expected),
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    assert resolve_python_executable(
-        project_root=project, adapter_root=adapter
-    ) == expected
-
-
-def test_python_executable_rejects_tampered_installer_runtime(
-    tmp_path: Path,
-) -> None:
-    project = tmp_path / "novel"
-    project.mkdir()
-    adapter = tmp_path / "plugins" / "webnovel-writer"
-    adapter.mkdir(parents=True)
-    source = tmp_path / "source" / "webnovel_studio"
-    source.mkdir(parents=True)
-    unexpected = _make_venv_python(tmp_path / "other")
-    (adapter / ".webnovel-hermes-install.json").write_text(
-        json.dumps(
-            {
-                "schema": "webnovel-hermes-install/v1",
-                "source": str(source),
-                "runtime_python": str(unexpected),
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(BridgeError, match="unexpected interpreter"):
-        resolve_python_executable(project_root=project, adapter_root=adapter)
+    assert resolve_python_executable() == Path(sys.executable)
 
 
 def test_python_executable_accepts_injected_path_and_rejects_missing(
@@ -282,8 +211,7 @@ def test_environment_bridge_maps_roots_without_polluting_global_environment(
     adapter.mkdir()
     upstream = make_upstream(tmp_path / "upstream")
     project = make_project(tmp_path / "中文项目")
-    hermes_home = tmp_path / "isolated-hermes"
-    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    data_root = tmp_path / "isolated-hermes" / "plugin-data" / "webnovel-studio"
     before = os.environ.copy()
 
     child_env = build_subprocess_env(
@@ -291,6 +219,7 @@ def test_environment_bridge_maps_roots_without_polluting_global_environment(
         upstream_root=upstream,
         project_root=project,
         base_env={**os.environ, "PYTHONIOENCODING": "latin-1"},
+        data_root=data_root,
     )
 
     assert child_env["WEBNOVEL_HERMES_ROOT"] == str(adapter.resolve())
@@ -298,16 +227,13 @@ def test_environment_bridge_maps_roots_without_polluting_global_environment(
     assert child_env["WEBNOVEL_PROJECT_ROOT"] == str(project)
     assert child_env["CLAUDE_PLUGIN_ROOT"] == str(upstream)
     assert child_env["CLAUDE_PROJECT_DIR"] == str(project)
-    assert child_env["WEBNOVEL_CLAUDE_HOME"] == str(
-        (hermes_home / "webnovel-writer").resolve()
-    )
+    assert child_env["WEBNOVEL_CLAUDE_HOME"] == str(data_root.resolve())
     assert child_env["PYTHONIOENCODING"] == "utf-8"
+    assert child_env["PYTHONDONTWRITEBYTECODE"] == "1"
     assert os.environ == before
 
 
-def test_environment_bridge_uses_dot_hermes_under_home_when_hermes_home_is_absent(
-    tmp_path: Path,
-) -> None:
+def test_environment_bridge_forwards_only_allowlisted_variables(tmp_path: Path) -> None:
     adapter = tmp_path / "adapter"
     adapter.mkdir()
     upstream = make_upstream(tmp_path / "upstream")
@@ -317,11 +243,45 @@ def test_environment_bridge_uses_dot_hermes_under_home_when_hermes_home_is_absen
         adapter_root=adapter,
         upstream_root=upstream,
         project_root=project,
+        base_env={
+            "PATH": "/usr/bin",
+            "HOME": str(tmp_path / "home"),
+            "LANG": "zh_CN.UTF-8",
+            "LC_ALL": "zh_CN.UTF-8",
+            "OPENAI_API_KEY": "sk-should-not-leak",
+            "ANTHROPIC_API_KEY": "should-not-leak",
+            "EMBED_API_KEY": "should-not-leak",
+            "HERMES_HOME": str(tmp_path / "hermes"),
+            "PYTHONPATH": "/somewhere/else",
+        },
+        data_root=tmp_path / "data",
+    )
+
+    assert child_env["PATH"] == "/usr/bin"
+    assert child_env["LANG"] == "zh_CN.UTF-8"
+    assert child_env["LC_ALL"] == "zh_CN.UTF-8"
+    for leaked in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "EMBED_API_KEY", "HERMES_HOME", "PYTHONPATH"):
+        assert leaked not in child_env
+
+
+def test_environment_bridge_defaults_to_plugin_data_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    adapter = tmp_path / "adapter"
+    adapter.mkdir()
+    upstream = make_upstream(tmp_path / "upstream")
+    project = make_project(tmp_path / "project")
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-home"))
+
+    child_env = build_subprocess_env(
+        adapter_root=adapter,
+        upstream_root=upstream,
+        project_root=project,
         base_env={"HOME": str(tmp_path / "home")},
     )
 
     assert child_env["WEBNOVEL_CLAUDE_HOME"] == str(
-        (tmp_path / "home" / ".hermes" / "webnovel-writer").resolve()
+        (tmp_path / "hermes-home" / "plugin-data" / "webnovel-studio").resolve()
     )
 
 

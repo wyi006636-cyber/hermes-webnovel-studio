@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import math
 import os
 from collections.abc import Mapping
@@ -286,33 +285,38 @@ def _validate(raw: dict[str, Any]) -> WebnovelConfig:
     )
 
 
-def _hermes_home() -> Path:
-    """Resolve the active profile through Hermes, with a standalone fallback."""
+PLUGIN_NAME = "webnovel-studio"
+
+
+def plugin_data_root() -> Path:
+    """Return the per-plugin data directory for the active Hermes profile.
+
+    Inside Hermes this is the sanctioned ``plugin_data_dir`` (``<hermes
+    home>/plugin-data/webnovel-studio``), which survives plugin updates and
+    removal. Outside Hermes (unit tests, standalone use) the same layout is
+    derived from ``HERMES_HOME`` or ``~/.hermes``.
+    """
     try:
-        get_hermes_home = importlib.import_module("hermes_constants").get_hermes_home
+        from plugins.plugin_storage import plugin_data_dir
     except ModuleNotFoundError as exc:
-        if exc.name != "hermes_constants":
+        if exc.name not in {"plugins", "plugins.plugin_storage"}:
             raise
         configured_home = os.environ.get("HERMES_HOME")
-        return (
-            Path(configured_home).expanduser()
-            if configured_home
-            else Path.home() / ".hermes"
-        )
-    return Path(get_hermes_home()).expanduser()
+        home = Path(configured_home).expanduser() if configured_home else Path.home() / ".hermes"
+        return home / "plugin-data" / PLUGIN_NAME
+    return Path(plugin_data_dir(PLUGIN_NAME)).expanduser()
 
 
 def load_webnovel_config() -> WebnovelConfig:
-    """Load packaged defaults plus ``$HERMES_HOME/webnovel-writer/config.yaml``.
+    """Load packaged defaults plus ``<plugin data dir>/config.yaml``.
 
-    ``HERMES_HOME`` defaults to ``~/.hermes``. The user's file is optional,
-    deeply merged over the package default, and then the entire result is
-    strictly validated before any route can be used.
+    The plugin data directory is ``<hermes home>/plugin-data/webnovel-studio``.
+    The user's file is optional, deeply merged over the package default, and
+    then the entire result is strictly validated before any route can be used.
     """
 
     defaults = _load_yaml(_DEFAULT_CONFIG_PATH, required=True)
-    hermes_home = _hermes_home()
-    user_path = hermes_home / "webnovel-writer" / "config.yaml"
+    user_path = plugin_data_root() / "config.yaml"
     user = _load_yaml(user_path, required=False)
     return _validate(_deep_merge(defaults, user))
 

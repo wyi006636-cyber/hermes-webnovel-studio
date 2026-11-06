@@ -1,8 +1,22 @@
-name: webnovel-writer
-version: 0.1.0
-description: Novel-first initialization, planning, chapter writing, and optional literary review.
-author: Webnovel Writer Hermes contributors
+name: webnovel-studio
+version: 1.0.0
+manifest_version: 2
+api_version: 1
+description: >-
+  Long-form fiction studio: plan, write and review a serialized novel chapter by
+  chapter with cross-chapter story memory, resumable runs and write guards.
+author: wyi006636-cyber
+license: GPL-3.0-only
+homepage: https://github.com/wyi006636-cyber/hermes-webnovel-studio
+tags: [writing, fiction, novel, webnovel, long-form, chinese]
 kind: standalone
+requires_hermes: ">=0.22.5"
+python_dependencies:
+  - "filelock>=3.12,<4"
+  - "pydantic>=2.5,<3"
+  - "fastapi>=0.110,<1"
+  - "uvicorn>=0.29,<1"
+  - "watchdog>=4,<8"
 provides_tools:
   - webnovel_runtime
 provides_hooks:

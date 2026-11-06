@@ -1,4 +1,4 @@
-"""Hermes plugin registration for the Webnovel Writer adapter."""
+"""Hermes plugin registration for Webnovel Studio."""
 
 from __future__ import annotations
 
@@ -41,7 +41,11 @@ def _pre_llm_call_session_context(
 
 def _setup_webnovel_cli(parser: ArgumentParser) -> None:
     """Configure the top-level ``hermes webnovel`` operator surface."""
-    parser.description = "Novel-first Webnovel Writer operator and acceptance CLI."
+    parser.description = (
+        "Webnovel Studio operator CLI. The writing workflow itself runs inside "
+        "Hermes chat through the /webnovel-* skills."
+    )
+    parser.set_defaults(_webnovel_parser=parser)
     commands = parser.add_subparsers(dest="webnovel_command")
     live = commands.add_parser(
         "smoke-live",
@@ -56,13 +60,13 @@ def _setup_webnovel_cli(parser: ArgumentParser) -> None:
 
 
 def _handle_webnovel_cli(args: Namespace) -> None:
-    """Fail closed rather than pretending the later operator CLI exists."""
-    del args
-    print(
-        json.dumps({"success": False, "error": "not_implemented"}),
-        file=sys.stderr,
-    )
-    raise SystemExit(1)
+    """Print usage when no operator subcommand was given."""
+    parser = getattr(args, "_webnovel_parser", None)
+    if parser is not None:
+        parser.print_help(sys.stderr)
+    else:
+        print("usage: hermes webnovel smoke-live --project-root PATH", file=sys.stderr)
+    raise SystemExit(2)
 
 
 def register(ctx: Any) -> None:
@@ -112,7 +116,7 @@ def register(ctx: Any) -> None:
         toolset="webnovel",
         schema=WEBNOVEL_RUNTIME_SCHEMA,
         handler=bound_runtime_handler,
-        description="Novel-first initialization, planning, writing, and literary-review runtime.",
+        description="Long-form novel runtime: initialize, plan, write, review and query a novel project.",
         emoji="📚",
     )
     skills_root = Path(__file__).resolve().parent / "skills"
@@ -120,17 +124,17 @@ def register(ctx: Any) -> None:
         ctx.register_skill(
             name=skill_name,
             path=skills_root / skill_name / "SKILL.md",
-            description=f"Webnovel Writer workflow: {skill_name}",
+            description=f"Webnovel Studio workflow: {skill_name}",
         )
     ctx.register_hook("pre_tool_call", pre_tool_call_guard)
     ctx.register_hook("pre_llm_call", _pre_llm_call_session_context)
     ctx.register_cli_command(
         name="webnovel",
-        help="Webnovel Writer operations",
+        help="Webnovel Studio operations",
         setup_fn=_setup_webnovel_cli,
         handler_fn=bound_cli_handler,
         description=(
-            "Webnovel Writer operator CLI for the complete native runtime workflow."
+            "Webnovel Studio operator CLI (real-model acceptance run)."
         ),
     )
 
